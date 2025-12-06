@@ -2,429 +2,249 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>奇异博士粒子系统 - 移动版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>双手御法传送门</title>
     <style>
-        /* --- 移动端基础设置 --- */
-        * { box-sizing: border-box; touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
-        body { margin: 0; overflow: hidden; background-color: #050505; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; font-family: 'Segoe UI', sans-serif; }
         
-        /* 画布 */
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-        #input-video { display: none; } /* 隐藏原始画面 */
-
-        /* --- 启动页 (解决移动端权限问题) --- */
-        #start-screen {
+        #input-video { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            opacity: 0; pointer-events: none; z-index: -1; 
+            transform: scaleX(-1); /* 镜像翻转 */
+        }
+        
+        /* HUD 界面 */
+        #hud {
+            position: absolute; bottom: 50px; width: 100%; text-align: center; 
+            pointer-events: none; z-index: 10;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+        }
+        .title {
+            color: #f5a623; font-size: 26px; font-weight: 800; letter-spacing: 3px;
+            text-shadow: 0 0 15px rgba(245, 166, 35, 0.8); margin: 0;
+        }
+        .status-pill {
+            color: #eee; background: rgba(20, 20, 20, 0.8); 
+            padding: 8px 20px; border-radius: 30px; font-size: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s; display: flex; align-items: center; gap: 8px;
+        }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; transition: background 0.3s; }
+        
+        /* 加载层 */
+        #loading {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 999;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            transition: opacity 0.5s;
+            background: #000; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
-        .start-btn {
-            padding: 15px 40px; font-size: 18px; color: white;
-            background: linear-gradient(45deg, #ff6b00, #ff2200);
-            border: none; border-radius: 30px; font-weight: bold;
-            box-shadow: 0 0 20px rgba(255, 68, 0, 0.4);
-            animation: pulse 2s infinite;
+        .spinner {
+            width: 50px; height: 50px; border: 3px solid #333; 
+            border-top: 3px solid #f5a623; border-radius: 50%; 
+            animation: spin 1s linear infinite; margin-bottom: 20px;
         }
-        .loading-text { color: #888; margin-top: 15px; font-size: 12px; }
-
-        /* --- 智能引导 HUD (核心交互提示) --- */
-        #gesture-hud {
-            position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
-            z-index: 10; width: 80%; text-align: center; pointer-events: none;
-            transition: all 0.3s ease;
-        }
-        .hud-icon { font-size: 40px; display: block; margin-bottom: 5px; filter: drop-shadow(0 0 10px rgba(0,255,255,0.5)); }
-        .hud-text { 
-            color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 500; 
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8); background: rgba(0,0,0,0.3);
-            padding: 8px 16px; border-radius: 20px; display: inline-block;
-            backdrop-filter: blur(4px);
-        }
-        
-        /* 状态指示条 - 类似于血条/能量条 */
-        #energy-bar-container {
-            position: absolute; top: 0; left: 0; width: 100%; height: 4px; z-index: 20;
-        }
-        #energy-bar {
-            width: 0%; height: 100%; background: #00ffff; box-shadow: 0 0 10px #00ffff;
-            transition: width 0.2s, background-color 0.3s;
-        }
-
-        /* --- 底部控制栏 (手机端操作区) --- */
-        #controls-bar {
-            position: absolute; bottom: 30px; left: 20px; right: 20px; z-index: 20;
-            background: rgba(30, 30, 30, 0.6);
-            backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            border-radius: 20px; padding: 15px;
-            border: 1px solid rgba(255,255,255,0.1);
-            display: flex; align-items: center; justify-content: space-between;
-        }
-        .color-wrapper {
-            display: flex; align-items: center; gap: 10px; color: white; font-size: 14px;
-        }
-        input[type="color"] {
-            width: 30px; height: 30px; border: none; border-radius: 50%; overflow: hidden; padding: 0;
-            background: none; box-shadow: 0 0 5px rgba(255,255,255,0.3);
-        }
-        .debug-toggle {
-            font-size: 12px; color: #aaa; background: rgba(255,255,255,0.1); 
-            padding: 5px 10px; border-radius: 8px;
-        }
-
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
-        .hidden { opacity: 0; pointer-events: none; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <!-- 1. 启动页 -->
-    <div id="start-screen">
-        <button class="start-btn" id="init-btn">点击开启魔法体验</button>
-        <div class="loading-text" id="loading-msg">需允许摄像头权限 • 推荐竖屏体验</div>
-    </div>
-
-    <!-- 2. HUD 引导层 -->
-    <div id="gesture-hud">
-        <span class="hud-icon">👋</span>
-        <span class="hud-text">请将手伸入镜头范围</span>
-    </div>
-    
-    <!-- 3. 能量条 -->
-    <div id="energy-bar-container"><div id="energy-bar"></div></div>
-
-    <!-- 4. 底部控制栏 -->
-    <div id="controls-bar">
-        <div class="color-wrapper">
-            <input type="color" id="color-picker" value="#00ffff">
-            <span>粒子辉光</span>
-        </div>
-        <div class="debug-toggle" id="fps-counter">FPS: 60</div>
-    </div>
-
-    <!-- 5. 核心画布 -->
-    <div id="canvas-container"></div>
     <video id="input-video" playsinline webkit-playsinline></video>
+    
+    <div id="loading">
+        <div class="spinner"></div>
+        <div style="color:#f5a623; font-weight:bold;">正在建立双子链接...</div>
+        <div style="color:#666; font-size:12px; margin-top:5px;">国内线路加速中</div>
+    </div>
 
-    <!-- 库文件引入 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <div id="hud">
+        <div class="title">ELDRITCH MAGIC</div>
+        <div class="status-pill">
+            <div class="dot" id="status-dot"></div>
+            <span id="status-text">请举起双手</span>
+        </div>
+    </div>
 
-    <script type="module">
-        // === 核心配置 ===
-        const CONFIG = {
-            mobileParticleCount: 1200, // 手机端减少粒子数以保流畅
-            desktopParticleCount: 3000,
-            colors: {
-                idle: '#00ffff',
-                active: '#ff2200',
-                magic: '#ffaa00'
-            }
+    <!-- 国内镜像源 (速度快，无需VPN) -->
+    <script src="https://npm.elemecdn.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        // --- 1. Three.js 视觉系统 ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 15;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        document.body.appendChild(renderer.domElement);
+
+        // 火花纹理
+        const cvs = document.createElement('canvas'); cvs.width = 64; cvs.height = 64;
+        const ctx = cvs.getContext('2d');
+        const grd = ctx.createRadialGradient(32,32,0, 32,32,32);
+        grd.addColorStop(0, '#fff'); grd.addColorStop(0.3, '#ff9900'); grd.addColorStop(1, 'transparent');
+        ctx.fillStyle = grd; ctx.fillRect(0,0,64,64);
+        const tex = new THREE.CanvasTexture(cvs);
+
+        // 粒子环
+        const COUNT = 3000;
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(COUNT * 3);
+        const data = new Float32Array(COUNT * 3); // x:speed, y:angle, z:radiusOffset
+        
+        for(let i=0; i<COUNT; i++) {
+            pos[i*3] = 999; 
+            data[i*3] = 2 + Math.random() * 4;       // 速度
+            data[i*3+1] = Math.random() * Math.PI * 2; // 角度
+            data[i*3+2] = (Math.random() - 0.5) * 1.5; // 半径抖动
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        
+        const mat = new THREE.PointsMaterial({
+            size: 0.4, map: tex, transparent: true, 
+            blending: THREE.AdditiveBlending, depthWrite: false, color: 0xffaa00
+        });
+        const portal = new THREE.Points(geo, mat);
+        scene.add(portal);
+
+        // 内部虚空
+        const voidMesh = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(1, 2),
+            new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0 })
+        );
+        scene.add(voidMesh);
+
+        // --- 2. 状态管理 ---
+        let State = {
+            targetRadius: 0,
+            currentRadius: 0,
+            hasHands: false
         };
 
-        // === 状态管理 ===
-        const State = {
-            hand: 'NONE', // NONE, OPEN, CLOSED, DOUBLE
-            isMagic: false,
-            energy: 0, // 0-100 用于UI显示
-            currentColor: new THREE.Color(CONFIG.colors.idle)
-        };
+        function animate() {
+            requestAnimationFrame(animate);
 
-        // === 1. 引导提示系统 (HUD System) ===
-        class HUDSystem {
-            constructor() {
-                this.hud = document.getElementById('gesture-hud');
-                this.icon = this.hud.querySelector('.hud-icon');
-                this.text = this.hud.querySelector('.hud-text');
-                this.bar = document.getElementById('energy-bar');
-                this.lastState = '';
-            }
+            // 缓动动画：平滑改变半径
+            // 如果没检测到手，目标半径自动归零
+            if (!State.hasHands) State.targetRadius = 0;
+            
+            State.currentRadius += (State.targetRadius - State.currentRadius) * 0.1;
 
-            update(handState, isMagic) {
-                // 状态未改变则不刷新DOM，优化性能
-                if (this.lastState === handState && this.lastMagic === isMagic) return;
-                this.lastState = handState;
-                this.lastMagic = isMagic;
+            // 视觉更新
+            const r = State.currentRadius;
+            portal.rotation.z -= 0.05;
+            
+            voidMesh.scale.setScalar(r * 0.9);
+            voidMesh.material.opacity = Math.min(1, r / 3);
+            voidMesh.rotation.y += 0.01;
 
-                if (isMagic) {
-                    this.show('✨', '至尊法师模式已激活！', '#ffaa00');
-                    return;
-                }
-
-                switch (handState) {
-                    case 'NONE':
-                        this.show('👋', '寻找手部信号...', '#333');
-                        break;
-                    case 'OPEN':
-                        this.show('✋', '张开：释放能量', '#00ffff');
-                        break;
-                    case 'CLOSED':
-                        this.show('✊', '握拳：凝聚粒子', '#ff3300');
-                        break;
-                    case 'DOUBLE':
-                        this.show('🙏', '双手合十：触发法阵', '#ffaa00');
-                        break;
-                }
-            }
-
-            show(icon, text, barColor) {
-                this.icon.textContent = icon;
-                this.text.textContent = text;
-                this.bar.style.backgroundColor = barColor;
-                this.bar.style.boxShadow = `0 0 10px ${barColor}`;
+            const p = portal.geometry.attributes.position.array;
+            for(let i=0; i<COUNT; i++) {
+                const idx = i*3;
+                data[idx+1] += data[idx] * 0.01; // 更新角度
                 
-                // 简单的进入动画
-                this.hud.style.transform = "translateX(-50%) scale(1.1)";
-                setTimeout(() => {
-                    this.hud.style.transform = "translateX(-50%) scale(1)";
-                }, 100);
-            }
+                const angle = data[idx+1];
+                const radius = r + data[idx+2];
 
-            updateEnergy(val) {
-                this.bar.style.width = `${val}%`;
-            }
-        }
-
-        // === 2. 3D 渲染引擎 (Three.js Engine) ===
-        class Engine {
-            constructor() {
-                this.container = document.getElementById('canvas-container');
-                this.scene = new THREE.Scene();
-                // 移动端适当增加迷雾遮盖远处，提升沉浸感
-                this.scene.fog = new THREE.FogExp2(0x050505, 0.03);
-
-                // 摄像机适配竖屏
-                this.camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 100);
-                this.camera.position.z = 4;
-
-                this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // 关闭抗锯齿换取性能
-                this.renderer.setSize(window.innerWidth, window.innerHeight);
-                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比，省电
-                this.container.appendChild(this.renderer.domElement);
-
-                this.clock = new THREE.Clock();
-                this.particles = null;
-                this.magicCircle = null;
-                
-                this.initWorld();
-                window.addEventListener('resize', () => this.resize());
-            }
-
-            initWorld() {
-                // --- 粒子群 ---
-                const count = window.innerWidth < 600 ? CONFIG.mobileParticleCount : CONFIG.desktopParticleCount;
-                const geometry = new THREE.BufferGeometry();
-                const pos = new Float32Array(count * 3);
-                
-                for(let i=0; i<count*3; i++) {
-                    pos[i] = (Math.random() - 0.5) * 8;
-                }
-                
-                geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-                
-                const mat = new THREE.PointsMaterial({
-                    size: 0.1,
-                    color: State.currentColor,
-                    transparent: true,
-                    opacity: 0.8,
-                    blending: THREE.AdditiveBlending,
-                    sizeAttenuation: true
-                });
-
-                this.particles = new THREE.Points(geometry, mat);
-                this.scene.add(this.particles);
-
-                // --- 魔法阵 (简化版，适合手机渲染) ---
-                this.magicCircle = new THREE.Group();
-                this.magicCircle.visible = false;
-                
-                // 外圈
-                const ring = new THREE.Mesh(
-                    new THREE.RingGeometry(1.2, 1.3, 32),
-                    new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
-                );
-                // 内圈正方形
-                const square = new THREE.LineSegments(
-                    new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.8, 1.8)),
-                    new THREE.LineBasicMaterial({ color: 0xff4400 })
-                );
-                
-                this.magicCircle.add(ring);
-                this.magicCircle.add(square);
-                this.magicCircle.children[1].name = "inner";
-                this.scene.add(this.magicCircle);
-            }
-
-            changeColor(hex) {
-                State.currentColor.set(hex);
-                if(this.particles) this.particles.material.color.lerp(State.currentColor, 0.1);
-            }
-
-            render() {
-                const delta = this.clock.getDelta();
-                const time = this.clock.getElapsedTime();
-
-                // 粒子基础旋转
-                if(this.particles) {
-                    // 根据状态改变速度
-                    let speed = 0.1;
-                    let scaleTarget = 1.0;
-                    
-                    if(State.hand === 'CLOSED') { speed = 2.0; scaleTarget = 0.4; } // 聚能
-                    if(State.hand === 'OPEN') { speed = 0.05; scaleTarget = 1.8; } // 扩散
-                    
-                    this.particles.rotation.y += speed * delta;
-                    
-                    // 呼吸缩放
-                    const currentScale = this.particles.scale.x;
-                    const newScale = currentScale + (scaleTarget - currentScale) * 0.05;
-                    this.particles.scale.set(newScale, newScale, newScale);
-                    
-                    // 颜色实时更新
-                    this.particles.material.color = State.currentColor;
-                }
-
-                // 魔法阵动画
-                if(State.isMagic) {
-                    this.magicCircle.visible = true;
-                    this.magicCircle.rotation.z -= delta * 0.5;
-                    const inner = this.magicCircle.getObjectByName("inner");
-                    if(inner) inner.rotation.z += delta * 2;
-                    
-                    // 脉冲效果
-                    const pulse = 1 + Math.sin(time * 10) * 0.1;
-                    this.magicCircle.scale.set(pulse, pulse, pulse);
+                if (r > 0.1) {
+                    // 极坐标 -> 笛卡尔坐标 + 随机噪点(火花飞溅)
+                    const jitter = (Math.random()-0.5) * 0.2;
+                    p[idx] = Math.cos(angle) * radius + jitter;
+                    p[idx+1] = Math.sin(angle) * radius + jitter;
+                    p[idx+2] = (Math.random()-0.5) * 0.5;
                 } else {
-                    this.magicCircle.visible = false;
+                    p[idx] = 999; // 隐藏
                 }
-
-                this.renderer.render(this.scene, this.camera);
-                requestAnimationFrame(() => this.render());
             }
-
-            resize() {
-                this.camera.aspect = window.innerWidth / window.innerHeight;
-                this.camera.updateProjectionMatrix();
-                this.renderer.setSize(window.innerWidth, window.innerHeight);
-            }
+            portal.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
         }
+        animate();
 
-        // === 3. 视觉识别 (Vision Controller) ===
-        class Vision {
-            constructor(hud) {
-                this.hud = hud;
-                this.video = document.getElementById('input-video');
-                this.hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        // --- 3. MediaPipe 手势识别 (双手中控) ---
+        const videoElement = document.getElementById('input-video');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+        const loadingDiv = document.getElementById('loading');
+
+        // 使用国内源加载
+        const hands = new Hands({locateFile: (file) => `https://npm.elemecdn.com/@mediapipe/hands/${file}`});
+        
+        hands.setOptions({
+            maxNumHands: 2, // 关键：检测两只手
+            modelComplexity: 0, // Lite模型，保证流畅
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        let isLoaded = false;
+
+        hands.onResults(results => {
+            if (!isLoaded) {
+                isLoaded = true;
+                loadingDiv.style.display = 'none';
+            }
+
+            const detectedHands = results.multiHandLandmarks.length;
+
+            if (detectedHands === 2) {
+                State.hasHands = true;
                 
-                // 移动端性能配置
-                this.hands.setOptions({
-                    maxNumHands: 2,
-                    modelComplexity: 1, // 0=Lite(最快), 1=Full(准确)
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
+                // 获取两只手的位置
+                const hand1 = results.multiHandLandmarks[0];
+                const hand2 = results.multiHandLandmarks[1];
 
-                this.hands.onResults(this.onResults.bind(this));
+                // 使用手掌中心 (点9: 中指根部) 计算距离，比手腕更稳定
+                const x1 = hand1[9].x;
+                const y1 = hand1[9].y;
+                const x2 = hand2[9].x;
+                const y2 = hand2[9].y;
+
+                // 计算欧几里得距离 (0.0 ~ 1.0)
+                const distance = Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
+
+                // 映射距离到传送门半径
+                // 距离 0.1 (手碰手) -> 半径 0
+                // 距离 0.6 (张开双臂) -> 半径 7
+                let target = (distance - 0.1) * 12; 
+                target = Math.max(0, Math.min(target, 7)); // 限制范围
+
+                State.targetRadius = target;
+
+                // UI 反馈
+                statusText.innerText = "能量连接：稳定";
+                statusDot.style.background = "#00ff88";
+                statusDot.style.boxShadow = "0 0 10px #00ff88";
+
+            } else if (detectedHands === 1) {
+                State.hasHands = false;
+                statusText.innerText = "需双手以开启";
+                statusDot.style.background = "#f5a623";
+                statusDot.style.boxShadow = "none";
+            } else {
+                State.hasHands = false;
+                statusText.innerText = "未检测到手部";
+                statusDot.style.background = "#555";
+                statusDot.style.boxShadow = "none";
             }
+        });
 
-            async start() {
-                const camera = new Camera(this.video, {
-                    onFrame: async () => await this.hands.send({image: this.video}),
-                    width: 480, height: 640, // 降低处理分辨率，提升FPS
-                    facingMode: 'user' // 强制使用前置摄像头
-                });
-                await camera.start();
-            }
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => await hands.send({image: videoElement}),
+            width: 640, height: 480, facingMode: 'user'
+        });
+        cameraUtils.start().catch(e => {
+            alert("摄像头启动失败，请检查权限。");
+        });
 
-            onResults(results) {
-                const landmarks = results.multiHandLandmarks;
-
-                if (!landmarks || landmarks.length === 0) {
-                    State.hand = 'NONE';
-                    State.isMagic = false;
-                    State.energy = Math.max(0, State.energy - 5);
-                } else {
-                    State.energy = Math.min(100, State.energy + 2);
-
-                    // 双手判断
-                    if(landmarks.length === 2) {
-                        const h1 = landmarks[0][0];
-                        const h2 = landmarks[1][0];
-                        const dist = Math.hypot(h1.x - h2.x, h1.y - h2.y);
-                        
-                        if(dist < 0.1) { // 双手靠近
-                            State.hand = 'DOUBLE';
-                            State.isMagic = true;
-                        } else {
-                            State.isMagic = false;
-                            this.checkSingleHand(landmarks[0]); // 即使双手，如果没合十，优先判断第一只手
-                        }
-                    } else {
-                        // 单手判断
-                        State.isMagic = false;
-                        this.checkSingleHand(landmarks[0]);
-                    }
-                }
-
-                // 更新UI
-                this.hud.update(State.hand, State.isMagic);
-                this.hud.updateEnergy(State.energy);
-            }
-
-            checkSingleHand(lm) {
-                // 简单计算：指尖到手腕的距离总和
-                // 0:Wrist, 8:IndexTip, 12:MiddleTip, 16:RingTip, 20:PinkyTip
-                const wrist = lm[0];
-                const tips = [8, 12, 16, 20];
-                let totalDist = 0;
-                tips.forEach(idx => {
-                    totalDist += Math.hypot(wrist.x - lm[idx].x, wrist.y - lm[idx].y);
-                });
-                const avgDist = totalDist / 4;
-                
-                // 阈值判定
-                if(avgDist < 0.25) State.hand = 'CLOSED';
-                else State.hand = 'OPEN';
-            }
-        }
-
-        // === 主程序入口 ===
-        const hud = new HUDSystem();
-        const engine = new Engine();
-        const vision = new Vision(hud);
-
-        // 绑定UI事件
-        const colorPicker = document.getElementById('color-picker');
-        colorPicker.addEventListener('input', (e) => engine.changeColor(e.target.value));
-
-        // 启动流程
-        const startBtn = document.getElementById('init-btn');
-        const startScreen = document.getElementById('start-screen');
-        const loadMsg = document.getElementById('loading-msg');
-
-        startBtn.addEventListener('click', async () => {
-            startBtn.disabled = true;
-            startBtn.textContent = "正在初始化引擎...";
-            loadMsg.textContent = "正在加载 AI 模型，请稍候 (首次加载约需5-10秒)";
-
-            try {
-                // 必须由用户点击触发视频流
-                await vision.start();
-                
-                // 启动3D循环
-                engine.render();
-
-                // 隐藏启动页
-                startScreen.style.opacity = 0;
-                setTimeout(() => startScreen.style.display = 'none', 500);
-            } catch (err) {
-                console.error(err);
-                startBtn.textContent = "启动失败";
-                loadMsg.textContent = "请检查浏览器摄像头权限，或确保使用HTTPS访问。";
-                alert("无法开启摄像头: " + err.message);
-            }
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
     </script>
