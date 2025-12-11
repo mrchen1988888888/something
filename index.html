@@ -2,304 +2,293 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Dr. Strange (Global/Debug)</title>
+    <title>Doctor Strange Portal (PC Ultimate)</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; font-family: monospace; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         
-        /* 布局容器 */
-        #container { position: relative; width: 100%; height: 100%; }
+        /* 容器：确保层级正确 */
+        #container { position: relative; width: 100vw; height: 100vh; }
 
-        /* 层级 1: 摄像头画面 + 骨架绘制 (最底层) */
-        #output-canvas { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            transform: scaleX(-1); /* 镜像翻转 */
-            z-index: 1;
-            object-fit: cover;
-        }
-
-        /* 层级 2: Three.js 魔法特效 (叠加层) */
-        #three-canvas {
+        /* 层级 1: 背景画布 (显示摄像头画面) */
+        #bg-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; /* 让鼠标事件穿透 */
-            z-index: 2;
+            z-index: 1; object-fit: cover;
+            transform: scaleX(-1); /* 电脑端镜像翻转，操作更自然 */
         }
 
-        /* 层级 3: 调试日志控制台 */
-        #console-log {
-            position: absolute; top: 10px; left: 10px; width: 300px; max-height: 50%;
-            background: rgba(0, 0, 0, 0.8); color: #00ff88;
-            padding: 10px; border-radius: 8px; border: 1px solid #004422;
-            overflow-y: auto; font-size: 11px; z-index: 100;
+        /* 层级 2: 3D 特效层 (透明背景) */
+        #effect-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 2; pointer-events: none;
+        }
+
+        /* UI 界面 */
+        #ui-layer {
+            position: absolute; bottom: 30px; width: 100%; text-align: center; z-index: 10;
             pointer-events: none;
         }
-        .log-error { color: #ff3333; font-weight: bold; border-top: 1px solid #550000; margin-top:5px; padding-top:5px;}
-        .log-warn { color: #ffaa00; }
-        .log-info { color: #00ff88; }
-
-        /* 隐藏原始视频元素 (我们画在 canvas 上) */
-        #input-video { display: none; }
-
-        /* HUD */
-        #hud {
-            position: absolute; bottom: 30px; width: 100%; text-align: center;
-            z-index: 50; pointer-events: none;
+        .status-bar {
+            display: inline-block;
+            background: rgba(0, 0, 0, 0.7);
+            color: #f5a623;
+            padding: 10px 40px;
+            border-radius: 40px;
+            font-size: 24px;
+            font-weight: 800;
+            border: 2px solid #f5a623;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 0 30px rgba(245, 166, 35, 0.4);
+            transition: all 0.3s;
         }
-        .status-text {
-            display: inline-block; background: rgba(0,0,0,0.6); color: #f5a623;
-            padding: 10px 20px; border-radius: 30px; font-size: 16px; font-weight: bold;
-            border: 1px solid rgba(245, 166, 35, 0.3);
+
+        /* 调试日志 */
+        #debug-log {
+            position: absolute; top: 10px; left: 10px; z-index: 100;
+            color: #0f0; font-family: monospace; font-size: 12px;
+            background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
 
-    <!-- 日志窗口 -->
-    <div id="console-log">
-        <div>[SYSTEM] Booting up...</div>
-    </div>
+    <div id="debug-log">System Initializing...</div>
 
-    <!-- 原始视频源 (隐藏) -->
-    <video id="input-video" playsinline webkit-playsinline></video>
-
-    <!-- 视觉层 -->
     <div id="container">
-        <canvas id="output-canvas"></canvas> <!-- 摄像头+骨架 -->
-        <canvas id="three-canvas"></canvas>  <!-- 魔法传送门 -->
+        <!-- 2D 画布：绘制视频帧 -->
+        <canvas id="bg-canvas"></canvas>
+        <!-- 3D 画布：绘制传送门 -->
+        <canvas id="effect-canvas"></canvas>
     </div>
 
-    <div id="hud">
-        <div class="status-text" id="status-msg">INITIALIZING...</div>
+    <div id="ui-layer">
+        <div class="status-bar" id="status-text">INITIALIZING AI...</div>
     </div>
 
-    <!-- 
-        全球标准源 (Global CDN)
-        如果不挂梯子，在这里可能会加载失败
-    -->
+    <!-- 国际源 (需要 VPN) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- MediaPipe 核心 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <script>
-        // --- 0. 日志系统 ---
-        const logBox = document.getElementById('console-log');
-        function log(msg, type = 'info') {
-            const div = document.createElement('div');
-            const time = new Date().toISOString().split('T')[1].split('.')[0];
-            div.innerHTML = `<span style="opacity:0.5">[${time}]</span> ${msg}`;
-            if (type === 'error') div.className = 'log-error';
-            else if (type === 'warn') div.className = 'log-warn';
-            logBox.appendChild(div);
-            logBox.scrollTop = logBox.scrollHeight;
-            console.log(msg);
-        }
-
-        window.onerror = function(msg, url, line) {
-            log(`CRITICAL ERROR: ${msg} (Line ${line})`, 'error');
-            return false;
-        };
-
-        // --- 1. Three.js 魔法特效 ---
-        log("Step 1: Initializing Graphics Engine...");
+        const logEl = document.getElementById('debug-log');
+        function log(msg) { logEl.innerText = `> ${msg}`; console.log(msg); }
         
-        const threeCanvas = document.getElementById('three-canvas');
+        const statusText = document.getElementById('status-text');
+
+        // --- 1. 图形引擎 (Three.js) ---
+        log("Step 1: Loading Graphics Engine (PC High Performance)...");
+        
+        const canvas3D = document.getElementById('effect-canvas');
         const scene = new THREE.Scene();
-        // 稍微透明一点的背景，让摄像头画面能透出来
-        // 但我们用 renderer 的 alpha:true 已经处理了
+        // 移除背景色，确保完全透明
         
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 15;
+        camera.position.z = 20;
 
-        const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+        const renderer = new THREE.WebGLRenderer({ 
+            canvas: canvas3D, 
+            alpha: true, // 关键：允许透明背景
+            antialias: true,
+            powerPreference: "high-performance"
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
-        // 纹理生成
-        const cvs = document.createElement('canvas'); cvs.width=64; cvs.height=64;
-        const ctx = cvs.getContext('2d');
-        const grd = ctx.createRadialGradient(32,32,0, 32,32,32);
-        grd.addColorStop(0,'white'); grd.addColorStop(0.3,'#ffaa00'); grd.addColorStop(1,'transparent');
-        ctx.fillStyle = grd; ctx.fillRect(0,0,64,64);
-        const tex = new THREE.CanvasTexture(cvs);
+        // 纹理生成 (程序化生成高清火花)
+        function createSparkTexture() {
+            const cvs = document.createElement('canvas');
+            cvs.width = 256; cvs.height = 256; // PC端使用更高清纹理
+            const ctx = cvs.getContext('2d');
+            const g = ctx.createRadialGradient(128,128,0, 128,128,128);
+            g.addColorStop(0, '#ffffff');      // 核心白
+            g.addColorStop(0.1, '#fffebb');    // 内圈淡黄
+            g.addColorStop(0.4, '#ffaa00');    // 中圈金
+            g.addColorStop(0.7, '#ff4400');    // 外圈红橙
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(0,0,256,256);
+            return new THREE.CanvasTexture(cvs);
+        }
 
         // 粒子系统
-        const count = 3000;
+        const COUNT = 5000; // 5000个粒子
         const geo = new THREE.BufferGeometry();
-        const pos = new Float32Array(count*3);
-        const attr = new Float32Array(count*3); // x:speed, y:angle, z:jitter
+        const pos = new Float32Array(COUNT * 3);
+        const data = new Float32Array(COUNT * 3); // x=speed, y=angle, z=radius_offset
         
-        for(let i=0; i<count; i++) {
-            pos[i*3]=999; // 初始隐藏
-            attr[i*3] = 2 + Math.random()*4; 
-            attr[i*3+1] = Math.random() * Math.PI * 2;
-            attr[i*3+2] = (Math.random()-0.5)*1.5;
+        for(let i=0; i<COUNT; i++) {
+            pos[i*3] = 9999; 
+            data[i*3] = 2 + Math.random() * 6;       // 旋转速度更快
+            data[i*3+1] = Math.random() * Math.PI * 2; 
+            data[i*3+2] = (Math.random() - 0.5) * 3.0; // 环更厚
         }
-        geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        
         const mat = new THREE.PointsMaterial({
-            size:0.4, map:tex, transparent:true, 
-            blending:THREE.AdditiveBlending, depthWrite:false, color:0xffaa00
+            size: 0.5, 
+            map: createSparkTexture(),
+            transparent: true,
+            blending: THREE.AdditiveBlending, // 关键：光叠加
+            depthWrite: false,
+            color: 0xffcc66
         });
-        const ring = new THREE.Points(geo, mat);
-        scene.add(ring);
 
-        // 虚空 (黑色球体，遮挡后面的摄像头画面，制造空间感)
-        const voidMesh = new THREE.Mesh(
-            new THREE.IcosahedronGeometry(1, 2),
-            new THREE.MeshBasicMaterial({ color: 0x000000 })
-        );
-        scene.add(voidMesh);
+        const portalRing = new THREE.Points(geo, mat);
+        scene.add(portalRing);
 
-        // 状态
-        let State = { r: 0, tr: 0 }; // r=currentRadius, tr=targetRadius
+        // 状态变量
+        let PortalState = {
+            radius: 0,
+            targetRadius: 0
+        };
 
-        function animateThree() {
-            requestAnimationFrame(animateThree);
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
             
-            // 缓动
-            State.r += (State.tr - State.r) * 0.1;
+            // 缓动动画
+            PortalState.radius += (PortalState.targetRadius - PortalState.radius) * 0.1;
             
-            // 虚空球体更新
-            voidMesh.scale.setScalar(State.r * 0.9);
-            // 随着半径变大，虚空完全不透明(黑色)，遮住后面的摄像头
-            // 但为了好看，我们其实不需要完全遮住，或者设为半透明
-            voidMesh.material.transparent = true;
-            voidMesh.material.opacity = Math.min(0.9, State.r / 4); 
+            // 整体旋转
+            portalRing.rotation.z -= 0.04;
 
-            // 粒子更新
-            ring.rotation.z -= 0.05;
-            const p = ring.geometry.attributes.position.array;
+            const p = portalRing.geometry.attributes.position.array;
             
-            for(let i=0; i<count; i++) {
-                attr[i*3+1] += attr[i*3]*0.01; // angle += speed
-                const r = State.r + attr[i*3+2]; // radius + jitter
+            for(let i=0; i<COUNT; i++) {
+                const idx = i*3;
                 
-                if(State.r > 0.1) {
-                    p[i*3] = Math.cos(attr[i*3+1]) * r + (Math.random()-0.5)*0.2;
-                    p[i*3+1] = Math.sin(attr[i*3+1]) * r + (Math.random()-0.5)*0.2;
-                    p[i*3+2] = (Math.random()-0.5);
+                // 更新角度
+                data[idx+1] += data[idx] * 0.005; 
+                const angle = data[idx+1];
+                
+                // 基础半径 + 随机偏移 + 动态缩放
+                const r = PortalState.radius + data[idx+2];
+
+                if (PortalState.radius > 0.5) {
+                    // 只有半径大于0.5才显示，避免中心聚集一个点
+                    // 增加一些随机噪点模拟火花飞溅
+                    const jitter = (Math.random() - 0.5) * 0.3;
+                    
+                    p[idx]   = Math.cos(angle) * r + jitter;
+                    p[idx+1] = Math.sin(angle) * r + jitter;
+                    p[idx+2] = (Math.random() - 0.5) * 2; // Z轴深度
                 } else {
-                    p[i*3] = 999;
+                    p[idx] = 9999; // 隐藏到屏幕外
                 }
             }
-            ring.geometry.attributes.position.needsUpdate = true;
+            
+            portalRing.geometry.attributes.position.needsUpdate = true;
             renderer.render(scene, camera);
         }
-        animateThree();
-        log("Graphics Engine Ready.");
+        renderLoop();
 
+        // --- 2. AI 视觉 (MediaPipe) ---
+        log("Step 2: Downloading AI Models (Standard Global)...");
 
-        // --- 2. MediaPipe Hands + Drawing ---
-        log("Step 2: Initializing AI Core...");
+        const bgCanvas = document.getElementById('bg-canvas');
+        const bgCtx = bgCanvas.getContext('2d');
         
-        const videoElement = document.getElementById('input-video');
-        const outputCanvas = document.getElementById('output-canvas');
-        const canvasCtx = outputCanvas.getContext('2d');
-        const statusMsg = document.getElementById('status-msg');
-
-        // 检测库是否加载
-        if (typeof Hands === 'undefined') {
-            log("ERROR: MediaPipe Hands lib not loaded. Check Network/VPN.", 'error');
-            statusMsg.innerText = "Library Load Failed";
-            throw new Error("Library missing");
-        }
+        // 虚拟视频元素用于捕获流
+        const video = document.createElement('video'); 
 
         const hands = new Hands({locateFile: (file) => {
-            log(`Downloading: ${file} ...`);
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
 
         hands.setOptions({
-            maxNumHands: 2, // 关键：双手
-            modelComplexity: 1,
+            maxNumHands: 2, // 必须检测双手
+            modelComplexity: 1, // 1=Full (电脑端用高精度)
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
 
         let isModelLoaded = false;
 
-        hands.onResults(onResults);
-
-        function onResults(results) {
+        hands.onResults(results => {
             if (!isModelLoaded) {
                 isModelLoaded = true;
-                log("AI Model Loaded Successfully!", 'info');
-                statusMsg.innerText = "SYSTEM READY - SHOW HANDS";
-                statusMsg.style.color = "#fff";
+                log("AI Ready. Tracking Hands...");
+                statusText.innerText = "RAISE BOTH HANDS";
+                statusText.style.color = "#fff";
+                statusText.style.borderColor = "rgba(255,255,255,0.3)";
             }
 
-            // 1. 绘制摄像头背景和骨架
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-            
-            // 绘制视频帧 (作为背景)
-            canvasCtx.drawImage(results.image, 0, 0, outputCanvas.width, outputCanvas.height);
-            
-            // 2. 处理手势逻辑
-            const handCount = results.multiHandLandmarks.length;
-            
-            if (handCount > 0) {
-                // 绘制骨架
-                for (const landmarks of results.multiHandLandmarks) {
-                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-                    drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1, radius: 3});
-                }
+            // 1. 绘制摄像头画面到背景 Canvas
+            bgCanvas.width = window.innerWidth;
+            bgCanvas.height = window.innerHeight;
+            bgCtx.drawImage(results.image, 0, 0, bgCanvas.width, bgCanvas.height);
 
-                // 逻辑控制
-                if (handCount === 2) {
-                    const h1 = results.multiHandLandmarks[0][9]; // 中指根部
-                    const h2 = results.multiHandLandmarks[1][9];
-                    
-                    // 计算距离 (MediaPipe 坐标是 0.0 ~ 1.0)
-                    const dist = Math.hypot(h1.x - h2.x, h1.y - h2.y);
-                    
-                    // 映射：距离 0.1 -> 半径0，距离 0.6 -> 半径7
-                    const target = Math.max(0, (dist - 0.1) * 14);
-                    State.tr = Math.min(target, 7);
-                    
-                    statusMsg.innerText = `DUAL HAND LINK: ${(dist*100).toFixed(0)}%`;
-                    statusMsg.style.color = "#00ff88";
+            // 2. 逻辑处理
+            if (results.multiHandLandmarks.length === 2) {
+                // 检测到双手
+                const h1 = results.multiHandLandmarks[0][9]; // 手掌中心
+                const h2 = results.multiHandLandmarks[1][9];
+                
+                // 计算距离 (MediaPipe 坐标系 0.0-1.0)
+                // 考虑宽高比矫正距离感受
+                const dx = (h1.x - h2.x);
+                const dy = (h1.y - h2.y);
+                const dist = Math.sqrt(dx*dx + dy*dy);
+
+                // 映射逻辑：
+                // 距离 0.1 (双手合十) -> 半径 0
+                // 距离 0.6 (张开双臂) -> 半径 12 (满屏)
+                let target = (dist - 0.1) * 24; 
+                target = Math.max(0, Math.min(target, 12));
+                
+                PortalState.targetRadius = target;
+
+                if (target > 2) {
+                    statusText.innerText = "PORTAL ACTIVE";
+                    statusText.style.color = "#00ff88";
+                    statusText.style.borderColor = "#00ff88";
+                    statusText.style.boxShadow = "0 0 30px #00ff88";
                 } else {
-                    State.tr = 0;
-                    statusMsg.innerText = "REQUIRE TWO HANDS";
-                    statusMsg.style.color = "#f5a623";
+                    statusText.innerText = "PULL OPEN";
+                    statusText.style.color = "#f5a623";
+                    statusText.style.borderColor = "#f5a623";
+                    statusText.style.boxShadow = "none";
                 }
-            } else {
-                // 无手
-                State.tr = 0;
-                statusMsg.innerText = "NO SIGNAL";
-                statusMsg.style.color = "#aaa";
-            }
-            
-            canvasCtx.restore();
-        }
 
-        // --- 3. Camera Setup ---
-        log("Step 3: Requesting Camera Access...");
+            } else {
+                // 单手或无手 -> 关闭
+                PortalState.targetRadius = 0;
+                
+                if (results.multiHandLandmarks.length === 1) {
+                    statusText.innerText = "NEED TWO HANDS";
+                    statusText.style.color = "#ffff00";
+                    statusText.style.borderColor = "#ffff00";
+                    statusText.style.boxShadow = "none";
+                } else {
+                    statusText.innerText = "NO HANDS DETECTED";
+                    statusText.style.color = "#555";
+                    statusText.style.borderColor = "#555";
+                    statusText.style.boxShadow = "none";
+                }
+            }
+        });
+
+        // --- 3. 启动摄像头 ---
+        log("Step 3: Starting Webcam (HD)...");
         
-        const cameraUtils = new Camera(videoElement, {
+        const cameraUtils = new Camera(video, {
             onFrame: async () => {
-                await hands.send({image: videoElement});
+                await hands.send({image: video});
             },
-            width: 640, height: 480, facingMode: 'user'
+            width: 1280, // HD分辨率
+            height: 720
         });
 
         cameraUtils.start()
-            .then(() => {
-                log("Camera Started. Waiting for AI...", 'info');
-                // 调整画布大小匹配
-                outputCanvas.width = 640;
-                outputCanvas.height = 480;
-            })
-            .catch(err => {
-                log(`CAMERA ERROR: ${err.message}`, 'error');
-                statusMsg.innerText = "CAMERA DENIED";
-                statusMsg.style.color = "red";
+            .then(() => log("Camera Running. Waiting for AI..."))
+            .catch(e => {
+                log(`Error: ${e.message}`);
+                alert("摄像头启动失败：请检查权限或设备连接。");
             });
 
-        // 窗口适配
+        // 响应窗口大小变化
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
